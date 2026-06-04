@@ -1,0 +1,36 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb}
+\usepackage[margin=1in]{geometry}
+\title{Variational Forms for PDE Solvers}
+\author{Srikrishnaa Vadivel}
+\date{}
+\begin{document}
+\maketitle
+
+\section{Poisson}
+For $-\partial_i(k\partial_i u)=f$, multiply by test function $v$ and integrate:
+\[
+  \int_\Omega k\,\partial_i u\,\partial_i v\,dx
+  -\int_{\partial\Omega}v k\partial_i u n_i\,ds
+  =\int_\Omega f v\,dx.
+\]
+Dirichlet boundaries are imposed strongly; Neumann boundaries keep the boundary
+flux term.
+
+\section{Heat}
+Backward Euler for $\partial_t u-\partial_i(\kappa\partial_i u)=f$:
+\[
+  \int_\Omega \frac{u^{n+1}-u^n}{\Delta t}v\,dx+
+  \int_\Omega \kappa\partial_i u^{n+1}\partial_i v\,dx
+  =\int_\Omega f^{n+1}v\,dx.
+\]
+
+\section{Elasticity}
+With $\epsilon_{ij}(u)=\frac12(\partial_i u_j+\partial_j u_i)$ and
+$\sigma_{ij}=C_{ijkl}\epsilon_{kl}$:
+\[
+  \int_\Omega \sigma_{ij}(u)\epsilon_{ij}(v)\,dx=\int_\Omega b_i v_i\,dx+
+  \int_{\partial\Omega_t}t_i v_i\,ds.
+\]
+
+\end{document}
