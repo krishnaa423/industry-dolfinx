@@ -27,25 +27,25 @@ python -m src.main
 
 The solver uses Maxwell-Boltzmann carrier statistics:
 
-\[
+$$
 n(\phi,F_n)=N_c\exp\left(\frac{F_n+\phi-E_{c0}}{k_B T}\right),
 \qquad
 p(\phi,F_p)=N_v\exp\left(\frac{E_{v0}-\phi-F_p}{k_B T}\right).
-\]
+$$
 
 The recombination model is
 
-\[
+$$
 U=\gamma (np-n_i^2).
-\]
+$$
 
 The 1D donor and acceptor profiles are smooth hyperbolic-tangent transitions:
 
-\[
+$$
 N_D(x)=\frac{N_D^\star}{2}\left(1+\tanh\left(\frac{x-L/2}{w}\right)\right),
 \qquad
 N_A(x)=\frac{N_A^\star}{2}\left(1-\tanh\left(\frac{x-L/2}{w}\right)\right).
-\]
+$$
 
 ## Variational Form
 
@@ -53,30 +53,30 @@ The code solves the mixed weak system for `phi`, `Fn`, and `Fp`.
 
 Poisson:
 
-\[
+$$
 \int_0^L \epsilon_r\, \phi_x\, v_{\phi,x}\, dx
 \;-\;
 \int_0^L A (p-n+N_D-N_A)\, v_\phi\, dx
 =0.
-\]
+$$
 
 Electron continuity:
 
-\[
+$$
 \int_0^L \mu_n\, n\, F_{n,x}\, v_{n,x}\, dx
 \;+\;
 \int_0^L A\, U\, v_n\, dx
 =0.
-\]
+$$
 
 Hole continuity:
 
-\[
+$$
 -\int_0^L \mu_p\, p\, F_{p,x}\, v_{p,x}\, dx
 \;+\;
 \int_0^L A\, U\, v_p\, dx
 =0.
-\]
+$$
 
 The solver uses first-order Lagrange elements and a fully coupled Newton solve
 through PETSc SNES.
@@ -87,29 +87,29 @@ The contacts are ideal Ohmic Dirichlet boundaries for all three unknowns.
 
 At the left p-contact:
 
-\[
+$$
 p_L \approx N_A^\star,
 \qquad
 n_L \approx \frac{n_i^2}{N_A^\star}.
-\]
+$$
 
 At the right n-contact:
 
-\[
+$$
 n_R \approx N_D^\star,
 \qquad
 p_R \approx \frac{n_i^2}{N_D^\star}.
-\]
+$$
 
 For applied bias `V`, the code uses the convention
 
-\[
+$$
 \phi_R=\phi_{R,\mathrm{eq}}+\frac{V}{E_h},
 \qquad
 F_{n,R}=F_0-\frac{V}{E_h},
 \qquad
 F_{p,R}=F_0-\frac{V}{E_h},
-\]
+$$
 
 while the left contact stays at its equilibrium value.
 
