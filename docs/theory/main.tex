@@ -1,0 +1,430 @@
+\documentclass[11pt]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage[
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+]{hyperref}
+
+\title{Theory Notes for the 1D Silicon p--n Junction Solver}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\bigskip
+
+\section{Overview}
+
+This document describes the mathematical model and numerical procedure used in
+the DOLFINx-based one-dimensional p--n junction solver in the repository.
+The code solves a steady-state drift-diffusion--Poisson system on a one-dimensional
+interval, using a mixed finite-element formulation for the electrostatic
+potential and the two quasi-Fermi energies.
+
+The current implementation is intentionally simple:
+\begin{itemize}
+    \item the device is one-dimensional in space,
+    \item the doping profile is a smooth p-to-n transition,
+    \item Maxwell--Boltzmann statistics are used,
+    \item the equations are written internally in atomic units,
+    \item each bias point is solved by Newton iteration, using the previous bias
+    point as the initial guess.
+\end{itemize}
+
+\section{Unknowns and Domain}
+
+The spatial domain is the interval
+\[
+    x \in [0,L].
+\]
+
+The unknown fields are
+\[
+    \phi(x), \qquad F_n(x), \qquad F_p(x),
+\]
+where
+\begin{itemize}
+    \item $\phi(x)$ is the electrostatic potential,
+    \item $F_n(x)$ is the electron quasi-Fermi energy,
+    \item $F_p(x)$ is the hole quasi-Fermi energy.
+\end{itemize}
+
+The code uses atomic units internally, so the energy-like quantities
+$\phi$, $F_n$, and $F_p$ are represented in Hartree units.
+
+\section{Unit System}
+
+\subsection{Atomic units used internally}
+
+The solver uses:
+\begin{align*}
+    a_0 &= 5.29177210903 \times 10^{-11}\ \mathrm{m}, \\
+    E_h &= 27.211386245988\ \mathrm{eV}, \\
+    t_0 &= 2.4188843265857 \times 10^{-17}\ \mathrm{s}, \\
+    k_B &= 3.166811563 \times 10^{-6}\ E_h/\mathrm{K}.
+\end{align*}
+
+At $T=300\ \mathrm{K}$,
+\[
+    k_B T \approx 9.500434689 \times 10^{-4}\ E_h.
+\]
+
+\subsection{Derived unit conventions}
+
+The code represents:
+\begin{itemize}
+    \item length in units of $a_0$,
+    \item energy and electrostatic potential in units of $E_h$,
+    \item time in units of $t_0$,
+    \item number density in units of $a_0^{-3}$.
+\end{itemize}
+
+The plots are converted back to more readable units:
+\begin{itemize}
+    \item position in microns,
+    \item doping in $\mathrm{m}^{-3}$,
+    \item applied bias in volts,
+    \item current in amperes.
+\end{itemize}
+
+\section{Carrier Statistics}
+
+The solver uses Maxwell--Boltzmann carrier densities:
+\begin{align}
+    n(\phi,F_n) &= N_c \exp\!\left(\frac{F_n + \phi - E_{c0}}{k_B T}\right), \\
+    p(\phi,F_p) &= N_v \exp\!\left(\frac{E_{v0} - \phi - F_p}{k_B T}\right).
+\end{align}
+
+To control overflow in the numerical implementation, the exponent arguments are
+clipped to the interval $[-80,80]$ before exponentiation.
+
+\section{Doping Model}
+
+The device is a p--n junction with a smooth transition centered at $x=L/2$.
+The donor and acceptor profiles are
+\begin{align}
+    N_D(x) &= \frac{N_D^\star}{2}
+    \left[
+        1 + \tanh\!\left(\frac{x-L/2}{w}\right)
+    \right], \\
+    N_A(x) &= \frac{N_A^\star}{2}
+    \left[
+        1 - \tanh\!\left(\frac{x-L/2}{w}\right)
+    \right].
+\end{align}
+
+This produces a p-type left side and an n-type right side while avoiding a
+discontinuous step in the finite-element interpolation.
+
+\section{Governing Equations}
+
+\subsection{Poisson equation}
+
+The electrostatic equation is written as
+\begin{equation}
+    -\frac{d}{dx}
+    \left(
+        \epsilon_r \frac{d\phi}{dx}
+    \right)
+    =
+    A \bigl(p - n + N_D - N_A\bigr).
+\end{equation}
+
+Here $A$ is the effective device cross-sectional area used in the 1D reduction.
+The code keeps the densities as volumetric densities and multiplies the source
+term by the cross-sectional area when reducing the device to one dimension.
+
+\subsection{Continuity equations}
+
+The drift-diffusion currents are modeled by
+\begin{align}
+    J_n &= \mu_n\, n \frac{dF_n}{dx}, \\
+    J_p &= \mu_p\, p \frac{dF_p}{dx}.
+\end{align}
+
+The steady-state continuity equations are represented in weak form, but the
+strong-form sign structure corresponds to
+\begin{align}
+    \frac{dJ_n}{dx} &= -A\,U, \\
+    \frac{dJ_p}{dx} &= +A\,U,
+\end{align}
+where $U$ is the recombination source term defined below.
+
+\subsection{Recombination model}
+
+The code uses the simple recombination model
+\begin{equation}
+    U = \gamma \bigl(np - n_i^2\bigr).
+\end{equation}
+
+To stay consistent with the band-edge parameters used in the code, the intrinsic
+density entering this term is the mass-action value
+\begin{equation}
+    n_i = \sqrt{N_c N_v}
+    \exp\!\left(
+        \frac{E_{v0}-E_{c0}}{2k_B T}
+    \right).
+\end{equation}
+
+\section{Variational Formulation}
+
+Let $v_\phi$, $v_n$, and $v_p$ be the test functions associated with
+$\phi$, $F_n$, and $F_p$, respectively.
+
+\subsection{Poisson weak form}
+
+The weak form used in the code is
+\begin{equation}
+    \int_0^L
+    \epsilon_r
+    \frac{d\phi}{dx}
+    \frac{dv_\phi}{dx}\,dx
+    -
+    \int_0^L
+    A\,(p-n+N_D-N_A)\,v_\phi\,dx
+    = 0.
+\end{equation}
+
+\subsection{Electron continuity weak form}
+
+The electron residual is
+\begin{equation}
+    \int_0^L
+    \mu_n\,n\,\frac{dF_n}{dx}\frac{dv_n}{dx}\,dx
+    +
+    \int_0^L
+    A\,U\,v_n\,dx
+    = 0.
+\end{equation}
+
+\subsection{Hole continuity weak form}
+
+The hole residual is
+\begin{equation}
+    -\int_0^L
+    \mu_p\,p\,\frac{dF_p}{dx}\frac{dv_p}{dx}\,dx
+    +
+    \int_0^L
+    A\,U\,v_p\,dx
+    = 0.
+\end{equation}
+
+\subsection{Mixed nonlinear system}
+
+The total nonlinear residual is the sum of the three weak forms:
+\[
+    \mathcal{R}(\phi,F_n,F_p;v_\phi,v_n,v_p)
+    =
+    \mathcal{R}_\phi + \mathcal{R}_n + \mathcal{R}_p.
+\]
+
+The code solves this coupled residual directly using DOLFINx and PETSc.
+
+\section{Boundary Conditions}
+
+\subsection{Ohmic contact model}
+
+The contacts are modeled as ideal Ohmic Dirichlet boundaries for all three
+unknowns:
+\[
+    \phi(0),\ \phi(L),\ F_n(0),\ F_n(L),\ F_p(0),\ F_p(L).
+\]
+
+\subsection{Equilibrium contact values}
+
+At the left p-contact the code assumes approximate charge neutrality:
+\begin{align}
+    p_L &\approx N_A^\star, \\
+    n_L &\approx \frac{n_i^2}{N_A^\star}.
+\end{align}
+
+At the right n-contact:
+\begin{align}
+    n_R &\approx N_D^\star, \\
+    p_R &\approx \frac{n_i^2}{N_D^\star}.
+\end{align}
+
+The quasi-Fermi reference level is built by inverting the Maxwell--Boltzmann
+relations at the contact:
+\begin{align}
+    F_n &= E_{c0} - \phi + k_B T \ln\!\left(\frac{n}{N_c}\right), \\
+    F_p &= E_{v0} - \phi - k_B T \ln\!\left(\frac{p}{N_v}\right).
+\end{align}
+
+The code combines the electron-based and hole-based contact electrostatic
+potentials by averaging the two resulting expressions at each contact.
+
+\subsection{Applied bias}
+
+For an applied voltage $V$, the current implementation uses the convention
+\begin{align}
+    \phi_L &= \phi_{L,\mathrm{eq}}, \\
+    \phi_R &= \phi_{R,\mathrm{eq}} + V/E_h, \\
+    F_{n,L} &= F_0, \\
+    F_{p,L} &= F_0, \\
+    F_{n,R} &= F_0 - V/E_h, \\
+    F_{p,R} &= F_0 - V/E_h.
+\end{align}
+
+In other words, the left contact stays fixed at equilibrium, while the right
+contact receives the bias shift.
+
+\section{Constants Used in the Current Solver}
+
+\subsection{Material and model constants}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Quantity & Value in code & Meaning \\
+\midrule
+$\epsilon_r$ & $11.7$ & silicon relative permittivity \\
+$E_{c0}$ & $1.12/27.211386245988\ E_h$ & conduction-band reference \\
+$E_{v0}$ & $0$ & valence-band reference \\
+$N_c$ & $2.8 \times 10^{25}\ \mathrm{m}^{-3}$ & conduction-band DOS \\
+$N_v$ & $1.04 \times 10^{25}\ \mathrm{m}^{-3}$ & valence-band DOS \\
+$n_i$ & $1.45 \times 10^{16}\ \mathrm{m}^{-3}$ & reported intrinsic density \\
+$N_A^\star$ & $1.0 \times 10^{23}\ \mathrm{m}^{-3}$ & left-side doping scale \\
+$N_D^\star$ & $1.0 \times 10^{23}\ \mathrm{m}^{-3}$ & right-side doping scale \\
+$\gamma$ & $1.0 \times 10^{-20}\ \mathrm{m}^{3}/\mathrm{s}$ & recombination parameter \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Geometry and mesh}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Quantity & Value in code & Meaning \\
+\midrule
+$L$ & $2.0 \times 10^{-6}\ \mathrm{m}$ & device length \\
+$A$ & $1.0\ \mu\mathrm{m}^2$ & effective cross-sectional area \\
+$w$ & $2.0 \times 10^{-8}\ \mathrm{m}$ & junction transition width \\
+cells & $200$ & 1D interval cells \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Transport scaling}
+
+The present code uses simplified mobility scaling rather than a detailed atomic-unit
+conversion of the SI mobilities:
+\begin{align}
+    \mu_n &= 1.0, \\
+    \mu_p &= 0.048/0.135.
+\end{align}
+
+This keeps the hole mobility proportional to the electron mobility, but the
+values should be interpreted as pragmatic numerical scales, not as a full
+microscopic transport calibration.
+
+\section{Bias Sweep Procedure}
+
+The applied biases used in the current code are
+\[
+    -0.5,\,-0.4,\,-0.3,\,-0.2,\,-0.1,\,
+    0.0,\,
+    0.1,\,0.2,\,0.3,\,0.4,\,0.5,\,0.6,\,0.7
+    \quad \text{volts}.
+\]
+
+The actual loop is ordered by increasing magnitude of the applied bias:
+\[
+    0,\ -0.1,\ 0.1,\ -0.2,\ 0.2,\ \dots
+\]
+because continuation is easier when the next point is close to the previous one.
+
+For each new bias point:
+\begin{enumerate}
+    \item the previous mixed solution is reused,
+    \item the Dirichlet traces are shifted to the new contact values,
+    \item Newton iteration is applied to the new residual,
+    \item the resulting fields are plotted and the right-contact current is recorded.
+\end{enumerate}
+
+\section{Numerical Procedure}
+
+\subsection{Finite-element spaces}
+
+The code uses first-order Lagrange finite elements:
+\[
+    \phi,\ F_n,\ F_p \in \mathcal{V}_h,
+\]
+with a mixed product space
+\[
+    \mathcal{V}_h \times \mathcal{V}_h \times \mathcal{V}_h.
+\]
+
+\subsection{Nonlinear solver}
+
+PETSc SNES is used through DOLFINx with:
+\begin{itemize}
+    \item Newton line search,
+    \item backtracking line search,
+    \item direct LU factorization in the linear subproblem,
+    \item a small nonzero LU pivot shift for robustness.
+\end{itemize}
+
+The solver tolerances currently used are:
+\begin{align*}
+    \texttt{rtol} &= 10^{-8}, \\
+    \texttt{atol} &= 10^{-10}, \\
+    \texttt{max\_it} &= 80.
+\end{align*}
+
+\subsection{Initialization strategy}
+
+At the first bias point, the code first solves the equilibrium Poisson-only
+problem and uses that result to initialize $\phi$. The quasi-Fermi energies are
+initialized by linear interpolation between the two contact values.
+
+At later bias points, the full previous mixed solution is reused and shifted to
+match the new boundary values.
+
+\section{Outputs}
+
+The current solver writes:
+\begin{itemize}
+    \item one bias plot per applied voltage,
+    \item an $I$--$V$ curve,
+    \item a current diagnostic plot.
+\end{itemize}
+
+Each bias plot contains:
+\begin{itemize}
+    \item $\phi(x)$,
+    \item $F_n(x)$ and $F_p(x)$,
+    \item $N_D(x)$ and $N_A(x)$.
+\end{itemize}
+
+\section{Current State of the Solver}
+
+The equilibrium point is the most reliable part of the computation.
+The biased drift-diffusion solve is still a numerically rough baseline rather
+than a polished production-quality semiconductor solver.
+
+In particular:
+\begin{itemize}
+    \item the continuation structure is in place,
+    \item the equations and weak forms are explicit,
+    \item the code is clean enough to iterate on,
+    \item but the biased nonlinear solve still deserves further stabilization and
+    physical calibration.
+\end{itemize}
+
+That is acceptable for a first educational and exploratory implementation, but
+it should be treated as a starting point rather than a final validated device model.
+
+\end{document}
